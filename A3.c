@@ -12,14 +12,14 @@
 #include    <stdlib.h>
 #include    <stdbool.h>
 #include    <string.h>
-
+#include    <math.h>
 #ifdef DEBUG
 #define D_PRNT(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define D_PRNT(...)
 #endif
 
-
+//define default values
 #define     DEFAULT_INIT_JOBS        5
 #define     DEFAULT_TOTAL_JOBS        100
 #define     DEFAULT_LAMBDA        ((double)1.0)
@@ -66,21 +66,6 @@ void usage(const char *message)
                     "\t[-randomize]\n");
 }
 
-
-/*
- * Name:	process_args()
- * Purpose:	Process the arguments, checking for validity where possible.
- * Arguments:	argc, argv and a struct to hold the values in.
- * Outputs:	Error messages only.
- * Modifies:	The struct argument.
- * Returns:	0 on success, non-0 otherwise.
- * Assumptions:	The pointers are valid.
- * Bugs:	This is way too long.  Maybe I should reconsider how
- *		much I dislike getopt().
- * Notes:	Sets the struct to the default values before
- *		processing the args.
- */
-
 int process_args(int argc, char *argv[], struct simulation_params *sps)
 {
     // Process the command-line arguments.
@@ -103,7 +88,8 @@ int process_args(int argc, char *argv[], struct simulation_params *sps)
                 usage("Error: invalid scheduling algorithm (-alg).\n");
                 return 1;
             }
-        } else if (!strcmp(argv[i], "-init_jobs")) {
+        }
+        else if (!strcmp(argv[i], "-init_jobs")) {
             i++;
             if (sscanf(argv[i], "%d%c", &sps->init_jobs, &c) != 1
                 || sps->init_jobs < 0) {
@@ -111,13 +97,77 @@ int process_args(int argc, char *argv[], struct simulation_params *sps)
                 return 1;
             }
         }
-
-/// MORE CODE HERE!!
-
+        else if (!strcmp(argv[i], "-total_jobs")) {
+            i++;
+            if (sscanf(argv[i], "%d%c", &sps->total_jobs, &c) != 1
+                || sps->total_jobs < 0) {
+                usage("Error: invalid argument to -total_jobs\n");
+                return 1;
+            }
+        }
+        else if (!strcmp(argv[i], "-prob_comp_time")) {
+            i++;
+            if (sscanf(argv[i], "%lf%c", &sps->lambda, &c) != 1
+                || sps->lambda < 0) {
+                usage("Error: invalid argument to -prob_comp_time\n");
+                return 1;
+            }
+        }
+        else if (!strcmp(argv[i], "-sched_time")) {
+            i++;
+            if (sscanf(argv[i], "%d%c", &sps->sched_time, &c) != 1
+                || sps->sched_time < 0) {
+                usage("Error: invalid argument to -sched_time\n");
+                return 1;
+            }
+        }
+        else if (!strcmp(argv[i], "-cs_time")) {
+            i++;
+            if (sscanf(argv[i], "%d%c", &sps->cont_swtch_time, &c) != 1
+                || sps->cont_swtch_time < 0) {
+                usage("Error: invalid argument to -cs_time\n");
+                return 1;
+            }
+        }
+        else if (!strcmp(argv[i], "-tick_time")) {
+            i++;
+            if (sscanf(argv[i], "%d%c", &sps->tick_time, &c) != 1
+                || sps->tick_time < 0) {
+                usage("Error: invalid argument to -tick_time\n");
+                return 1;
+            }
+        }
+        else if (!strcmp(argv[i], "-prob_new_job")) {
+            i++;
+            if (sscanf(argv[i], "%lf%c", &sps->prob_new_job, &c) != 1
+                || sps->prob_new_job < 0) {
+                usage("Error: invalid argument to -prob_new_job\n");
+                return 1;
+            }
+        }
+        else if (!strcmp(argv[i], "-randomize"))
+            sps->randomize = true;
+        //check for invalid arguments
+        else
+        {
+            fprintf(stderr,"Error: invalid argument %s",argv[i]);
+            usage("\n");
+            return 1;
+        }
     }
     return 0;
 }
 
+//generates random compute time in secs
+double rand_exp(double lambda)
+{
+    int64_t divisor = (int64_t)RAND_MAX + 1;
+    double u_0_to_almost_1;
+    double raw_value;
+    u_0_to_almost_1 = (double)random() / divisor;
+    raw_value = log(1 - u_0_to_almost_1) / -lambda;
+    return round(raw_value * 1000000.) / 1000000.;
+}
 int main(int argc, char *argv[])
 {
     progname = argv[0];
@@ -133,15 +183,33 @@ int main(int argc, char *argv[])
             .randomize = DEFAULT_RANDOMIZE
     };
 
+    if (process_args(argc, argv, &sim_params) != 0)
+        return EXIT_FAILURE;
+    //quit if no scheduling algorithm is specified
+    if (sim_params.sched_alg == UNDEFINED)
+    {
+        usage("No schedule algorithm is specified\n");
+        return EXIT_FAILURE;
+    }
+    //set random flags
+    if (sim_params.randomize == true)
+        srandom(NULL);
+    //TODO: RUN THE SIMULATION HERE
+    struct Job {
+        int64_t start;
+        int64_t compute_time;
+        int64_t passed_time;
+        int state; //running = 0,waiting = 1
+    };
+    int64_t usec = 0;
+    struct Job jobs [sim_params.total_jobs];
+
+    //TODO: Calculate statistics
     double average_response_time = 0.42;
     double average_waiting_time = 0.53;
     double average_turnaround_time = 98.1;
 
-    if (process_args(argc, argv, &sim_params) != 0)
-        return EXIT_FAILURE;
-
-    // RUN THE SIMULATION HERE
-
+    //Print info using provided code
     printf("For a simulation using the %s scheduling algorithm\n",
            alg_names[sim_params.sched_alg]);
     printf("with the following parameters:\n");
