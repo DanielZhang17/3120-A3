@@ -1,0 +1,1 @@
+/usr/bin/cc -g   CMakeFiles/A3.dir/A3.c.o  -o A3 
