@@ -172,7 +172,7 @@ double rand_exp(double lambda)
 //define struct job
 struct Job {
     //usec
-    int64_t start;
+    int64_t remaining;
     int64_t generated; // time when the job entered
     int64_t compute_time;
     int64_t passed_time;
@@ -184,10 +184,11 @@ struct Job {
 //function that generates a job and initialize it
 struct Job getJob(double lambda, int64_t time)
 {
+    int64_t tmp = rand_exp(lambda)*1000000;
     struct Job j = {
-            .start = 0,
             .generated = time,
-            .compute_time = rand_exp(lambda)*1000000,
+            .compute_time = tmp,
+            .remaining = tmp,
             .passed_time = 0,
             .state = 1,
             .wait_time = 0,
@@ -195,6 +196,21 @@ struct Job getJob(double lambda, int64_t time)
             .turnaround_time = 0
     };
     return j;
+}
+//returns the job index that has the shortest remaining time
+int shortest(struct Job * job,int c)
+{
+    int x = 0;//index
+    int temp = job[0].remaining;
+    for (int i = 1; i < c; ++i)
+    {
+        if (job[i].remaining<temp&&job[i].state!=2)
+        {
+            temp = job[i].remaining;
+            x = i;
+        }
+    }
+    return x;
 }
 int main(int argc, char *argv[])
 {
@@ -247,6 +263,7 @@ int main(int argc, char *argv[])
     int64_t cs_start_time = 0; //the time a context switch starts
     bool scheduler_running = false;
     bool context_switch_running = false;
+    bool init = true;//used for sjf
     //to keep track of the jobs
     int previous_job_index = 0;
     int current_job_index = 0;
@@ -264,10 +281,18 @@ int main(int argc, char *argv[])
                         clock_usec,
                  current_job_index);
                 jobs[current_job_index].state = 1;
-                //jobs[current_job_index].wait_time++;
             }
-            scheduler_running = true;
-            scheduler_start_time = clock_usec;
+            //handle edge case
+            if (scheduler_running)
+                scheduler_running=false;
+            else
+            {
+                scheduler_running = true;
+                scheduler_start_time = clock_usec;
+                continue;
+            }
+            if (context_switch_running)
+                context_switch_running=false;
         }
         //scheduler is running
         if (scheduler_running)
@@ -295,10 +320,12 @@ int main(int argc, char *argv[])
         {
             //increment time count
             jobs[current_job_index].passed_time++;
+            jobs[current_job_index].remaining--;
             jobs[current_job_index].turnaround_time++;
             //if at current time the job finishes
             if (jobs[current_job_index].passed_time ==
-            jobs[current_job_index].compute_time)
+            jobs[current_job_index].compute_time || jobs[current_job_index]
+            .remaining ==0)
             {
                 //current job finishes
                 jobs[current_job_index].state=2;
@@ -314,8 +341,12 @@ int main(int argc, char *argv[])
                         jobs[current_job_index].wait_time/sim_params
                         .total_jobs/1000000;
                 previous_job_index = current_job_index;
-                D_PRNT("process %d finished at %ld usec\n",
-                       current_job_index,clock_usec);
+                D_PRNT("t=%ld,process %d finished\n", clock_usec,
+                        current_job_index);
+                D_PRNT("job %d respond=%ld,wait=%ld,turnaround=%ld\n",
+                        current_job_index,jobs[current_job_index]
+                        .response_time,jobs[current_job_index].wait_time,
+                        jobs[current_job_index].turnaround_time);
             }
         }
         //Todo: generate new job
@@ -345,12 +376,35 @@ int main(int argc, char *argv[])
                 //runs context switch after the scheduler finish
                 context_switch_running = true;
                 cs_start_time = scheduler_start_time + sim_params.sched_time;
-                continue;
             }
         }
         if (sim_params.sched_alg == SJF)
         {
-            D_PRNT("Running sjf\n");
+            int tmp = current_job_index;
+            current_job_index = shortest(jobs,job_count);
+            if (current_job_index!=tmp&&!init)
+            {
+                context_switch_running = true;
+                cs_start_time = clock_usec;
+            }
+            init = false;
+            if (jobs[current_job_index].state==1)
+            {
+                jobs[current_job_index].state = 0;//start the job
+                D_PRNT("t=%ld,dispatching process %d,needing %ld usec\n",
+                       clock_usec, current_job_index, jobs[current_job_index]
+                               .compute_time);
+            }
+            //job finish
+            if (jobs[current_job_index].state==2)
+            {
+                previous_job_index = current_job_index;
+                scheduler_running = true;
+                scheduler_start_time = clock_usec;
+                context_switch_running = true;
+                cs_start_time = clock_usec+sim_params.sched_time;
+                current_job_index = shortest(jobs,job_count);
+            }
         }
         if (sim_params.sched_alg == RR) {
             D_PRNT("Running rr\n");
