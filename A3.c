@@ -2,13 +2,23 @@
  * File:	A3.c
  * Author:	Anran Zhang B00747547
  * Date:	2020-06-10
- * Modified:2020-06-17
- * Version:	0.9.5
+ * Modified:2020-06-18
+ * Version:	0.9.6
  *
  * Purpose:	simulate different cpu scheduling algorithms.
- * NOTE:    did not fully implement RR, one issue took me 3 days to debug:(
- *          also with 50 or more jobs it may take quite a few seconds to run.
  *
+ * Comments:Many things took much longer to implement and debug than expected.
+ *          Also with large number of jobs it may take a loooooong time to run.
+ *          Thus I didn't managed to finish the 500000 runs. They took
+ *          way longer to run than I expected. Since it is looping for 10000
+ *          times each clock tick. I didn't realize this problem until I
+ *          started testing larger number of jobs for the summary table and
+ *          that was too late for me to revert to a different solution.
+ *
+ *          You can test my program and see the debug output using small numbers
+ *          if you are inpatient. It may seem to run into an infinite loop,
+ *          it is not. Rather, it is running some huge loops that takes a
+ *          long time.
  */
 
 
@@ -32,8 +42,9 @@
 #define     DEFAULT_TICK_TIME        10            // msec
 #define     DEFAULT_PROB_NEW_JOB    ((double)0.15)
 #define     DEFAULT_RANDOMIZE        false
-#define     MULTI                 2
+#define     MULTI                 10
 //MULTI defines how many times the number of total job is allowed
+/**NOTE: if init_jobs is much larger than total_jobs, this need to change**/
 enum sched_alg_T
 {
     UNDEFINED, RR, SJF, FCFS
@@ -184,6 +195,7 @@ struct Job {
     int64_t wait_time;
     int64_t response_time;
     int64_t turnaround_time;
+    bool new;
 };
 //function that generates a job and initialize it
 struct Job getJob(double lambda, int64_t time)
@@ -197,7 +209,8 @@ struct Job getJob(double lambda, int64_t time)
             .state = 1,
             .wait_time = 0,
             .response_time = 0,
-            .turnaround_time = 0
+            .turnaround_time = 0,
+            .new = true
     };
     return j;
 }
@@ -248,13 +261,12 @@ int main(int argc, char *argv[])
     double average_turnaround_time = 0;
 
     int64_t clock_usec = -1;
-    int64_t tick = 0;
-    int64_t p_tick = -1; //previous tick
     //2 times the amount of total jobs just in case
     //The program break if I don't do that
-    struct Job * jobs = malloc(MULTI*sim_params.total_jobs*8*sizeof(int64_t));
+    struct Job * jobs = malloc(MULTI*sim_params.total_jobs*9*sizeof(int64_t));
     int job_count = 0;
     int finished_jobs = 0;
+    bool tick = false;
     //initialize the jobs
     for (int i = 0; i < sim_params.init_jobs; ++i)
     {
@@ -268,7 +280,6 @@ int main(int argc, char *argv[])
     int64_t cs_start_time = sim_params.sched_time; //time context switch starts
     bool scheduler_running = false;
     bool context_switch_running = false;
-    bool init = true;//used for sjf
     bool job_scheduled = false;
     //to keep track of the jobs
     int previous_job_index = 0;
@@ -278,8 +289,6 @@ int main(int argc, char *argv[])
         clock_usec++;//increments time in usec
         if (clock_usec%(sim_params.tick_time*1000)==0)
         {
-            tick++;
-            p_tick++;
             //clock tick and runs the scheduler
             //if the current job is running, it is stopped
             if (jobs[current_job_index].state==0)
@@ -300,9 +309,36 @@ int main(int argc, char *argv[])
                 D_PRNT("t=%ld,job %d is added, needing %ld usec\n",clock_usec,
                        job_count, jobs[job_count].compute_time);
                 job_count++;
-
             }
-
+            //special handling for rr
+            if (sim_params.sched_alg == RR)
+            {
+                previous_job_index = current_job_index;
+                while (current_job_index<job_count)
+                {
+                    if (current_job_index == job_count - 1)
+                        current_job_index = 0;
+                    else
+                        current_job_index++;
+                    if (jobs[current_job_index].state==2)
+                        continue;
+                    if (jobs[current_job_index].new)
+                    {
+                        //respond time is not calculated correctly
+                        jobs[current_job_index].response_time =
+                                scheduler_start_time -
+                                jobs[current_job_index].generated;
+                        jobs[current_job_index].new =false;
+                    }
+                    if (current_job_index != previous_job_index)
+                    {
+                        context_switch_running = true;
+                        cs_start_time = scheduler_start_time +sim_params
+                                .sched_time;
+                    }
+                    break;
+                }
+            }
         }
         //scheduler is running
         if (scheduler_running)
@@ -323,7 +359,12 @@ int main(int argc, char *argv[])
         }
         if (clock_usec == cs_start_time + sim_params.cont_swtch_time) {
             context_switch_running = false;//cs finish
-            D_PRNT("t=%ld,context switch done\n",clock_usec);
+            //D_PRNT("t=%ld,context switch done\n",clock_usec);
+        }
+        if (jobs[current_job_index].state==2&&sim_params.sched_alg==FCFS)
+        {
+            if (current_job_index==job_count-1)
+                continue;
         }
         //if the current job is running
         if (jobs[current_job_index].state==0)
@@ -347,9 +388,14 @@ int main(int argc, char *argv[])
                 average_turnaround_time += (double)
                         jobs[current_job_index].turnaround_time/sim_params
                         .total_jobs/1000000;
-                average_waiting_time += (double)
-                        jobs[current_job_index].wait_time/sim_params
+                if (sim_params.sched_alg==FCFS)
+                    average_waiting_time += (double)
+                        jobs[current_job_index].response_time/sim_params
                         .total_jobs/1000000;
+                else
+                    average_waiting_time += (double)
+                            jobs[current_job_index].wait_time/sim_params
+                                                    .total_jobs/1000000;
                 previous_job_index = current_job_index;
                 D_PRNT("t=%ld,process %d finished\n", clock_usec,
                         current_job_index);
@@ -383,6 +429,8 @@ int main(int argc, char *argv[])
                 cs_start_time = scheduler_start_time + sim_params.sched_time;
                 jobs[current_job_index] .response_time = scheduler_start_time -
                         jobs[current_job_index].generated;
+                jobs[current_job_index].wait_time = jobs[current_job_index]
+                        .response_time;
                 continue;
 
             }
@@ -391,6 +439,7 @@ int main(int argc, char *argv[])
         {
             if (jobs[current_job_index].state==1)
                 job_scheduled = false;
+
             int tmp = current_job_index;
             //job finish
             if (jobs[current_job_index].state==2)
@@ -401,7 +450,7 @@ int main(int argc, char *argv[])
                 scheduler_start_time = clock_usec;
                 //runs context switch after the scheduler finish
                 context_switch_running = true;
-                cs_start_time = scheduler_start_time + sim_params.sched_time+1;
+                cs_start_time = scheduler_start_time + sim_params.sched_time;
                 current_job_index = shortest(jobs,job_count);
                 jobs[current_job_index] .response_time = scheduler_start_time -
                         jobs[current_job_index].generated;
@@ -410,36 +459,27 @@ int main(int argc, char *argv[])
             if (!job_scheduled)
             {
                 current_job_index = shortest(jobs,job_count);
-                D_PRNT("t=%ld,dispatching process %d,needing %ld usec\n",
+                D_PRNT("t=%ld,dispatching process %d,needing %ld usec\n job "
+                       "finished:%d\n",
                        scheduler_start_time, current_job_index,
-                       jobs[current_job_index].compute_time);
+                       jobs[current_job_index].remaining,finished_jobs);
                 job_scheduled = true;
+                if (current_job_index!=tmp)
+                {
+                    context_switch_running = true;
+                    cs_start_time = scheduler_start_time + sim_params.sched_time+1;
+                }
             }
             jobs[current_job_index].state = 0;//start the job
 
         }
         if (sim_params.sched_alg == RR) {
-            //clock ticks
-            if (tick==p_tick)
-            {
-                previous_job_index = current_job_index;
-                while (jobs[current_job_index].state==2)
-                {
-                    current_job_index++;
-                    if (current_job_index == job_count - 1)
-                        current_job_index = 0;
-                }
-                //respond time is not calculated correctly
-                jobs[current_job_index] .response_time = scheduler_start_time -
-                        jobs[current_job_index].generated;
-            }
-
             if (jobs[current_job_index].state == 1)
             {
                 jobs[current_job_index].state = 0;
                 D_PRNT("t=%ld,dispatching process %d,needing %ld usec\n",
                        scheduler_start_time, current_job_index,
-                       jobs[current_job_index].compute_time);
+                       jobs[current_job_index].remaining);
             }
             if (jobs[current_job_index].state == 2)
             {
@@ -456,9 +496,10 @@ int main(int argc, char *argv[])
         //count the wait and turnaround time for the process in the queue
         //note if the scheduler or context switch is going on, it won't get here
         for (int i = 0; i < job_count; ++i) {
-            if (jobs[i].state==1&&!context_switch_running&&!scheduler_running)
+            if (jobs[i].state==1&&!context_switch_running)
             {
-                jobs[i].wait_time++;
+                if (sim_params.sched_alg!=FCFS)
+                    jobs[i].wait_time++;
                 jobs[i].turnaround_time++;
             }
         }

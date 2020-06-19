@@ -1,4 +1,4 @@
-/home/daniel/.local/share/JetBrains/Toolbox/apps/CLion/ch-0/201.7223.86/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_BUILD_TYPE=debug -G "CodeBlocks - Unix Makefiles" /home/daniel/CLionProjects/A3
+/home/daniel/.local/share/JetBrains/Toolbox/apps/CLion/ch-0/201.7846.88/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /home/daniel/CLionProjects/A3
 -- The C compiler identification is GNU 8.3.0
 -- Check for working C compiler: /usr/bin/cc
 -- Check for working C compiler: /usr/bin/cc -- works
